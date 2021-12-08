@@ -12,7 +12,12 @@ use async_graphql::{
     EmptySubscription, Enum, InputObject, Object, Request, Response, Schema, SimpleObject,
 };
 
-use crate::schema::model::{Mutation, Query};
+use crate::schema::{
+    model::{Mutation, Query},
+    utils::check_create_dir,
+};
+
+pub static PAGES_PATH: &str = "pages";
 
 type ApiSchema = Schema<Query, Mutation, EmptySubscription>;
 
@@ -32,6 +37,8 @@ async fn main() {
         .layer(AddExtensionLayer::new(schema));
 
     println!("Playground: http://localhost:3000");
+
+    check_create_dir(&PAGES_PATH).unwrap();
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())

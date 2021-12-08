@@ -1,38 +1,46 @@
 use async_graphql::*;
 use chrono::{DateTime, Local};
 use once_cell::sync::Lazy;
-use std::{sync::Mutex, vec};
+use std::{
+    fs::{read_dir, File},
+    io::prelude::*,
+    sync::Mutex,
+    vec,
+};
 
-#[derive(Clone)]
+use crate::PAGES_PATH;
+
+#[derive(Clone, SimpleObject)]
 pub struct Page {
     title: String,
-    datetime: String,
     text: String,
 }
-
-#[Object]
-impl Page {
-    async fn title(&self) -> String {
-        self.title.clone()
-    }
-
-    async fn datetime(&self) -> String {
-        self.datetime.clone()
-    }
-
-    async fn text(&self) -> String {
-        self.text.clone()
-    }
-}
-
-pub static PAGES: Lazy<Mutex<Vec<Page>>> = Lazy::new(|| Mutex::new(vec![]));
 
 pub struct Query;
 
 #[Object]
 impl Query {
-    async fn total_pages(&self) -> usize {
-        PAGES.lock().unwrap().len()
+    async fn total_pages(&self) -> Vec<Page> {
+        let paths = read_dir(PAGES_PATH).unwrap();
+        let mut pages = vec![];
+
+        for path in paths {
+            let p = path.unwrap().path();
+            let splited_path = &p.to_str().unwrap().split('/').collect::<Vec<&str>>();
+            let title_extension = splited_path[splited_path.len() - 1]
+                .split('.')
+                .collect::<Vec<&str>>();
+            let title = title_extension[0].to_string();
+
+            let mut file = File::open(p).unwrap();
+            let mut text = String::new();
+            file.read_to_string(&mut text).unwrap();
+            println!("get title {} text {}", &title, &text);
+            let page = Page { title, text };
+            pages.push(page);
+        }
+
+        pages
     }
 }
 
@@ -40,15 +48,12 @@ pub struct Mutation;
 
 #[Object]
 impl Mutation {
-    async fn post_pages(&self, title: String, text: String) -> bool {
-        let local_datetime: DateTime<Local> = Local::now();
-        let datetime = local_datetime.format("%Y/%m/%d %H%M%S %Z").to_string();
-        let page = Page {
-            title,
-            datetime,
-            text,
-        };
-        PAGES.lock().unwrap().push(page);
-        true
+    async fn post_pages(&self, title: String, text: String) -> Page {
+        let pages = PAGES_PATH.to_string();
+        let mut file = File::create(format!("{}/{}.txt", pages, title)).unwrap();
+        file.write_all(text.as_bytes()).unwrap();
+        println!("write title {} text {}", &title, &text);
+        let page = Page { title, text };
+        page
     }
 }
