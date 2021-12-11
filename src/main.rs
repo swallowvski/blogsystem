@@ -1,3 +1,7 @@
+#[macro_use]
+extern crate diesel;
+extern crate dotenv;
+
 mod schema;
 
 use axum::{
@@ -14,10 +18,8 @@ use async_graphql::{
 
 use crate::schema::{
     model::{Mutation, Query},
-    utils::check_create_dir,
+    setup::establish_connection,
 };
-
-pub static PAGES_PATH: &str = "pages";
 
 type ApiSchema = Schema<Query, Mutation, EmptySubscription>;
 
@@ -30,6 +32,7 @@ async fn graphql_playground() -> impl IntoResponse {
 }
 #[tokio::main]
 async fn main() {
+    let connection = establish_connection();
     let schema = Schema::new(Query, Mutation, EmptySubscription);
 
     let app = Router::new()
@@ -37,8 +40,6 @@ async fn main() {
         .layer(AddExtensionLayer::new(schema));
 
     println!("Playground: http://localhost:3000");
-
-    check_create_dir(&PAGES_PATH).unwrap();
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
