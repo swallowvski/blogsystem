@@ -1,18 +1,11 @@
 use async_graphql::*;
-use chrono::{DateTime, Local};
-use diesel::connection;
-use std::{
-    fs::{read_dir, remove_file, File},
-    io::prelude::*,
-    vec,
-};
-use tracing_subscriber::registry::SpanRef;
+use chrono::Local;
 
 use super::setup::establish_connection;
 use crate::schema::pages;
 use diesel::prelude::*;
 
-#[derive(Clone, SimpleObject, Queryable)]
+#[derive(Debug, Clone, SimpleObject, Queryable)]
 pub struct Page {
     id: Option<i32>,
     posttime: String,
@@ -23,6 +16,7 @@ pub struct Page {
 #[derive(Insertable)]
 #[table_name = "pages"]
 struct NewPage<'a> {
+    posttime: &'a str,
     title: &'a str,
     body: &'a str,
 }
@@ -48,10 +42,10 @@ impl Query {
         use crate::schema::pages::dsl::*;
 
         let conn = establish_connection();
+        println!("Search {}", post_id);
 
         let results = pages
             .filter(id.eq(post_id))
-            .limit(1)
             .load::<Page>(&conn)
             .expect("Error loading posts")[0]
             .clone();
@@ -65,13 +59,14 @@ pub struct Mutation;
 #[Object]
 impl Mutation {
     async fn post_pages(&self, title: String, body: String) -> String {
+        let posttime: &str = &Local::now().format("%F/%T/%Z").to_string();
         let conn = establish_connection();
 
-        let pages_id = create_page(&conn, &title, &body);
+        let pages_id = create_page(&conn, posttime, &title, &body);
 
         format!(
-            "Created Page:\nid: {}\ntitle:{}\ntext:\n{}",
-            pages_id, title, body
+            "Created Page:\nid: {}\ntitle:{}\ntext:\n{}\n{}",
+            pages_id, title, body, posttime
         )
     }
 
@@ -86,10 +81,16 @@ impl Mutation {
     }
 
     async fn update_pages(&self, id: i32, new_title: String, new_body: String) -> String {
-        use crate::schema::pages::dsl::{body, pages, title};
+        use crate::schema::pages::dsl::{body, pages, posttime, title};
+
+        let new_posttime: &str = &chrono::Local::now().format("%F/%T/%Z").to_string();
         let conn = establish_connection();
         let updated_id = diesel::update(pages.find(id))
-            .set((title.eq(new_title), body.eq(new_body)))
+            .set((
+                title.eq(new_title),
+                body.eq(new_body),
+                posttime.eq(new_posttime),
+            ))
             .execute(&conn)
             .unwrap_or_else(|_| panic!("Unable to find post"));
 
@@ -97,12 +98,29 @@ impl Mutation {
     }
 }
 
-fn create_page(conn: &SqliteConnection, title: &str, body: &str) -> usize {
-    use crate::schema::pages;
-    let new_post = NewPage { title, body };
+fn create_page(conn: &SqliteConnection, posttime: &str, title: &str, body: &str) -> usize {
+    let new_post = NewPage {
+        posttime,
+        title,
+        body,
+    };
 
     diesel::insert_into(pages::table)
         .values(&new_post)
         .execute(conn)
         .expect("Error saving new post")
+}
+
+#[test]
+fn test_post() {
+    use crate::schema::pages::dsl::*;
+
+    let conn = establish_connection();
+
+    let results = pages
+        .filter(id.eq(1))
+        .load::<Page>(&conn)
+        .expect("Error loading posts")[0]
+        .clone();
+    println!("{:#?}", results);
 }

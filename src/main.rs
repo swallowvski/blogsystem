@@ -13,13 +13,10 @@ use axum::{
 
 use async_graphql::{
     http::{playground_source, GraphQLPlaygroundConfig},
-    EmptySubscription, Enum, InputObject, Object, Request, Response, Schema, SimpleObject,
+    EmptySubscription, Request, Response, Schema,
 };
 
-use crate::schema::{
-    model::{Mutation, Query},
-    setup::establish_connection,
-};
+use crate::schema::model::{Mutation, Query};
 
 type ApiSchema = Schema<Query, Mutation, EmptySubscription>;
 
@@ -32,7 +29,6 @@ async fn graphql_playground() -> impl IntoResponse {
 }
 #[tokio::main]
 async fn main() {
-    let connection = establish_connection();
     let schema = Schema::new(Query, Mutation, EmptySubscription);
 
     let app = Router::new()
