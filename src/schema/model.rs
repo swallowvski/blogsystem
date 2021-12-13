@@ -25,32 +25,41 @@ pub struct Query;
 
 #[Object]
 impl Query {
-    async fn total_pages(&self) -> Vec<Page> {
+    async fn total_pages(&self) -> FieldResult<Vec<Page>> {
         use crate::schema::pages::dsl::*;
         let conn = establish_connection();
         let results = pages.load::<Page>(&conn).expect("Error loading posts");
+        if results.len() == 0 {
+            return Err(
+                FieldError::new("PagesError").extend_with(|_, e| e.set("pages", "No such pages"))
+            );
+        }
         println!("Displaying {} posts", results.len());
         for post in &results {
             println!("{}", post.title);
             println!("----------\n");
             println!("{}", post.body);
         }
-        results
+        Ok(results)
     }
 
-    async fn search_pages(&self, post_id: i32) -> Result<Option<Page>> {
+    async fn search_pages(&self, post_id: i32) -> FieldResult<Page> {
         use crate::schema::pages::dsl::*;
 
         let conn = establish_connection();
         println!("Search {}", post_id);
 
-        let results = pages
+        if let Some(page) = pages
             .filter(id.eq(post_id))
             .load::<Page>(&conn)
-            .expect("Error loading posts")[0]
-            .clone();
-
-        Ok(Some(results))
+            .expect("Error loading posts")
+            .clone()
+            .get(0)
+        {
+            Ok(page.clone())
+        } else {
+            Err(FieldError::new("PagesError").extend_with(|_, e| e.set("pages", "No such page")))
+        }
     }
 }
 
@@ -58,47 +67,65 @@ pub struct Mutation;
 
 #[Object]
 impl Mutation {
-    async fn post_pages(&self, title: String, body: String) -> String {
+    async fn post_pages(&self, title: String, body: String) -> FieldResult<String> {
         let posttime: &str = &Local::now().format("%F/%T/%Z").to_string();
         let conn = establish_connection();
 
-        let pages_id = create_page(&conn, posttime, &title, &body);
-
-        format!(
-            "Created Page:\nid: {}\ntitle:{}\ntext:\n{}\n{}",
-            pages_id, title, body, posttime
-        )
+        if let Ok(pages_id) = create_page(&conn, posttime, &title, &body) {
+            Ok(format!(
+                "Created Page:\nid: {}\ntitle:{}\ntext:\n{}\n{}",
+                pages_id, title, body, posttime
+            ))
+        } else {
+            Err(FieldError::new("PagesError")
+                .extend_with(|_, e| e.set("pages", "Error saving new page")))
+        }
     }
 
-    async fn delete_page(&self, delete_id: i32) -> String {
+    async fn delete_page(&self, delete_id: i32) -> FieldResult<String> {
         use crate::schema::pages::dsl::*;
 
         let conn = establish_connection();
-        let num_deleted = diesel::delete(pages.filter(id.eq(delete_id)))
-            .execute(&conn)
-            .expect("Error deleting pages");
-        format!("Deleted pages id {}", num_deleted)
+        if let Ok(num_deleted) = diesel::delete(pages.filter(id.eq(delete_id))).execute(&conn) {
+            Ok(format!("Deleted pages id {}", num_deleted))
+        } else {
+            Err(FieldError::new("PagesError")
+                .extend_with(|_, e| e.set("pages", "Error deleting page")))
+        }
     }
 
-    async fn update_pages(&self, id: i32, new_title: String, new_body: String) -> String {
+    async fn update_pages(
+        &self,
+        id: i32,
+        new_title: String,
+        new_body: String,
+    ) -> FieldResult<String> {
         use crate::schema::pages::dsl::{body, pages, posttime, title};
 
         let new_posttime: &str = &chrono::Local::now().format("%F/%T/%Z").to_string();
         let conn = establish_connection();
-        let updated_id = diesel::update(pages.find(id))
+        if let Ok(updated_id) = diesel::update(pages.find(id))
             .set((
                 title.eq(new_title),
                 body.eq(new_body),
                 posttime.eq(new_posttime),
             ))
             .execute(&conn)
-            .unwrap_or_else(|_| panic!("Unable to find post"));
-
-        format!("Updated pages id {}", updated_id)
+        {
+            Ok(format!("Updated pages id {}", updated_id))
+        } else {
+            Err(FieldError::new("PagesError")
+                .extend_with(|_, e| e.set("pages", "Error deleting page")))
+        }
     }
 }
 
-fn create_page(conn: &SqliteConnection, posttime: &str, title: &str, body: &str) -> usize {
+fn create_page(
+    conn: &SqliteConnection,
+    posttime: &str,
+    title: &str,
+    body: &str,
+) -> Result<usize, diesel::result::Error> {
     let new_post = NewPage {
         posttime,
         title,
@@ -108,7 +135,6 @@ fn create_page(conn: &SqliteConnection, posttime: &str, title: &str, body: &str)
     diesel::insert_into(pages::table)
         .values(&new_post)
         .execute(conn)
-        .expect("Error saving new post")
 }
 
 #[test]
